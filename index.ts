@@ -2,7 +2,7 @@ import express, { Application } from "express";
 import dotenv from "dotenv";
 import swaggerUI from "swagger-ui-express";
 import swaggerJsDoc from "swagger-jsdoc";
-
+import { swaggerSchemas } from './swaggerSchemas';
 // Import routes
 import routeApi from "./api/routers/index.route";
 
@@ -20,11 +20,13 @@ const options: swaggerJsDoc.Options = {
         url: `http://localhost:3000`,
       },
     ],
+    components: {
+      schemas: swaggerSchemas // Thêm schemas từ swaggerSchemas.ts
+    },
   },
   // ⚠️ Đổi sang .ts nếu bạn viết route bằng TypeScript
-  apis: ["./api/routers/*.route.ts"],
+  apis: ["./api/routers/*.route.ts", './swagger/*.ts'],
 };
-
 const specs = swaggerJsDoc(options);
 
 const app: Application = express();
