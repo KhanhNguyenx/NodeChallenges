@@ -1,13 +1,14 @@
-const express = require("express");
-require("dotenv").config();
-
-const swaggerUI = require("swagger-ui-express");
-const swaggerJsDoc = require("swagger-jsdoc");
+import express, { Application } from "express";
+import dotenv from "dotenv";
+import swaggerUI from "swagger-ui-express";
+import swaggerJsDoc from "swagger-jsdoc";
 
 // Import routes
-const routeApi = require("./api/routers/index.route");
+import routeApi from "./api/routers/index.route";
 
-const options = {
+dotenv.config();
+
+const options: swaggerJsDoc.Options = {
   definition: {
     openapi: "3.0.0",
     info: {
@@ -20,22 +21,22 @@ const options = {
       },
     ],
   },
-  apis: ["./api/routers/*.route.js"],
+  // ⚠️ Đổi sang .ts nếu bạn viết route bằng TypeScript
+  apis: ["./api/routers/*.route.ts"],
 };
+
 const specs = swaggerJsDoc(options);
 
-const app = express();
+const app: Application = express();
 
 // Middleware parse JSON + form
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-
 // Gọi hàm định nghĩa routes
 routeApi(app);
 
 app.use("/api-docs", swaggerUI.serve, swaggerUI.setup(specs));
-
 
 // Start server
 const PORT = process.env.PORT || 3000;

@@ -1,9 +1,22 @@
-const express = require("express");
-const router = express.Router();
-const controller = require("../controllers/product.controller");
-const authMiddleware = require("../middlewares/auth.middleware");
-const productDto = require("../dto/product.dto");
-const validate = require("../middlewares/validate.middleware");
+import { Router } from "express";
+import * as controller from "../controllers/product.controller";
+import * as authMiddleware from "../middlewares/auth.middleware";
+import productDto from "../dto/product.dto";
+import validate from "../middlewares/validate.middleware";
+
+const router: Router = Router();
+
+router.get("/", controller.getAllProducts);
+
+router.get("/getById/:id", controller.getById);
+
+router.get("/slug/:slug", controller.getBySlug);
+
+router.post("/create", productDto, validate, authMiddleware.requireAuth, controller.create);
+
+router.patch("/edit/:id", productDto, validate, authMiddleware.requireAuth, controller.edit);
+
+router.delete("/delete/:id", authMiddleware.requireAuth, controller.deleteProduct);
 
 /**
  * @swagger
@@ -52,6 +65,25 @@ const validate = require("../middlewares/validate.middleware");
  *           type: integer
  *           description: The available quantity of the product
  *           example: 100
+ *     Pagination:
+ *       type: object
+ *       required:
+ *         - total
+ *         - page
+ *         - limit
+ *       properties:
+ *         total:
+ *           type: integer
+ *           description: Total number of products matching the query
+ *           example: 50
+ *         page:
+ *           type: integer
+ *           description: Current page number
+ *           example: 1
+ *         limit:
+ *           type: integer
+ *           description: Number of products per page
+ *           example: 10
  *   securitySchemes:
  *     bearerAuth:
  *       type: http
@@ -60,27 +92,71 @@ const validate = require("../middlewares/validate.middleware");
  *
  * /api/product:
  *   get:
- *     summary: Retrieve a list of all products
- *     description: Returns a list of all products sorted by creation date in descending order.
+ *     summary: Retrieve a list of products with pagination and filtering
+ *     description: Returns a paginated list of products, optionally filtered by search term (name or slug) and quantity range, sorted by ID in descending order.
  *     tags: [Products]
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *         description: Page number for pagination
+ *         example: 1
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 10
+ *         description: Number of products per page
+ *         example: 10
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *           default: ""
+ *         description: Search term to filter products by name or slug (case-insensitive)
+ *         example: "laptop"
+ *       - in: query
+ *         name: minQuantity
+ *         schema:
+ *           type: integer
+ *         description: Minimum quantity to filter products
+ *         example: 10
+ *       - in: query
+ *         name: maxQuantity
+ *         schema:
+ *           type: integer
+ *         description: Maximum quantity to filter products
+ *         example: 100
  *     responses:
  *       200:
- *         description: A list of products
+ *         description: A paginated list of products
  *         content:
  *           application/json:
  *             schema:
- *               type: array
- *               items:
- *                 $ref: '#/components/schemas/Product'
+ *               type: object
+ *               properties:
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/Product'
+ *                 pagination:
+ *                   $ref: '#/components/schemas/Pagination'
  *             example:
- *               - id: "123e4567-e89b-12d3-a456-426614174000"
- *                 name: "Laptop XYZ"
- *                 slug: "laptop-xyz"
- *                 quantity: 100
- *               - id: "987e6543-e21b-12d3-a456-426614174000"
- *                 name: "Mouse ABC"
- *                 slug: "mouse-abc"
- *                 quantity: 50
+ *               data:
+ *                 - id: "123e4567-e89b-12d3-a456-426614174000"
+ *                   name: "Laptop XYZ"
+ *                   slug: "laptop-xyz"
+ *                   quantity: 100
+ *                 - id: "987e6543-e21b-12d3-a456-426614174000"
+ *                   name: "Mouse ABC"
+ *                   slug: "mouse-abc"
+ *                   quantity: 50
+ *               pagination:
+ *                 total: 50
+ *                 page: 1
+ *                 limit: 10
  *       500:
  *         description: Internal server error
  *         content:
@@ -225,10 +301,28 @@ const validate = require("../middlewares/validate.middleware");
  *             schema:
  *               type: object
  *               properties:
- *                 error:
- *                   type: string
- *                   description: Error message
- *                   example: "Invalid input data"
+ *                 errors:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       type:
+ *                         type: string
+ *                       msg:
+ *                         type: string
+ *                       path:
+ *                         type: string
+ *                       location:
+ *                         type: string
+ *                   example:
+ *                     - type: "field"
+ *                       msg: "Name is required"
+ *                       path: "name"
+ *                       location: "body"
+ *                     - type: "field"
+ *                       msg: "Slug must contain only lowercase letters, numbers, and hyphens"
+ *                       path: "slug"
+ *                       location: "body"
  *       401:
  *         description: Unauthorized, authentication required
  *         content:
@@ -296,10 +390,28 @@ const validate = require("../middlewares/validate.middleware");
  *             schema:
  *               type: object
  *               properties:
- *                 error:
- *                   type: string
- *                   description: Error message
- *                   example: "Invalid input data"
+ *                 errors:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       type:
+ *                         type: string
+ *                       msg:
+ *                         type: string
+ *                       path:
+ *                         type: string
+ *                       location:
+ *                         type: string
+ *                   example:
+ *                     - type: "field"
+ *                       msg: "Name is required"
+ *                       path: "name"
+ *                       location: "body"
+ *                     - type: "field"
+ *                       msg: "Slug must contain only lowercase letters, numbers, and hyphens"
+ *                       path: "slug"
+ *                       location: "body"
  *       401:
  *         description: Unauthorized, authentication required
  *         content:
@@ -387,32 +499,5 @@ const validate = require("../middlewares/validate.middleware");
  *                   example: "Failed to delete product"
  */
 
-router.get("/", controller.getAllProducts);
 
-router.get("/getById/:id", controller.getById);
-
-router.get("/slug/:slug", controller.getBySlug);
-
-router.post(
-  "/create",
-  productDto,
-  validate,
-  authMiddleware.requireAuth,
-  controller.create
-);
-
-router.patch(
-  "/edit/:id",
-  productDto,
-  validate,
-  authMiddleware.requireAuth,
-  controller.edit
-);
-
-router.delete(
-  "/delete/:id",
-  authMiddleware.requireAuth,
-  controller.delete
-);
-
-module.exports = router;
+export default router;

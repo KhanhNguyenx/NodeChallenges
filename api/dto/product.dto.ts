@@ -1,6 +1,7 @@
-const { body } = require("express-validator");
+import { body } from "express-validator";
+import { ValidationChain } from "express-validator";
 
-module.exports = [
+const productDto: ValidationChain[] = [
   body("name")
     .notEmpty()
     .withMessage("Name is required")
@@ -17,3 +18,5 @@ module.exports = [
     .isInt({ min: 0 })
     .withMessage("Quantity must be a non-negative integer"),
 ];
+
+export default productDto;
