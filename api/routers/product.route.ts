@@ -11,6 +11,8 @@ router.get("/", controller.getAllProducts);
 
 router.get("/getById/:id", controller.getById);
 
+router.get("/getByCategoryId/:id", controller.getByCategoryId);
+
 router.get("/slug/:slug", controller.getBySlug);
 
 router.post("/create", productDto, validate, authMiddleware.requireAuth, controller.create);

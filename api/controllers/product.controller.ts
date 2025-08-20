@@ -22,9 +22,11 @@ export const getAllProducts = async (req: Request, res: Response): Promise<Respo
 
     // search theo tên hoặc slug
     if (search) {
-      query += ` AND (name ILIKE $${index} OR slug ILIKE $${index})`;
-      countQuery += ` AND (name ILIKE $${index} OR slug ILIKE $${index})`;
-      values.push(`%${search}%`);
+      const keyword = (search as string).replace(/\s+/g, '-'); // thay khoảng trắng bằng dấu -
+
+      query += ` AND (slug ILIKE $${index} OR name ILIKE $${index})`;
+      countQuery += ` AND (slug ILIKE $${index} OR name ILIKE $${index})`;
+      values.push(`%${keyword}%`);
       index++;
     }
 
@@ -76,24 +78,58 @@ export const getById = async (req: Request, res: Response): Promise<Response | v
     return res.status(500).json({ error: "Failed to fetch product" });
   }
 };
+// [GET] /api/product/getByCategoryId/:id
+export const getByCategoryId = async (req: Request, res: Response): Promise<Response | void> => {
+  try {
+    const categoryId = req.params.id;
+
+    // Lấy sản phẩm theo category_id
+    const result = await pool.query(
+      `SELECT p.*, c.name AS category_name
+       FROM products p
+       LEFT JOIN categories c ON p.category_id = c.id
+       WHERE p.category_id = $1`,
+      [categoryId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "No products found for this category" });
+    }
+
+    return res.json(result.rows);
+  } catch (e) {
+    console.error(e);
+    return res.status(500).json({ error: "Failed to fetch products by category" });
+  }
+};
 // [POST] /api/product
 export const create = async (req: AuthRequest, res: Response): Promise<Response | void> => {
-  const { name, slug, quantity } = req.body;
+  const { name, slug, quantity, category_id } = req.body;
 
   try {
-    // Lấy userId từ token (auth.middleware đã decode)
     const decodedUser = req.user as JwtPayload;
-    const userId = decodedUser?.id; 
+    const userId = decodedUser?.id;
 
     if (!userId) {
       return res.status(401).json({ error: "Invalid user" });
     }
 
+    // Kiểm tra category_id
+    if (category_id) {
+      const categoryCheck = await pool.query(
+        `SELECT id FROM categories WHERE id = $1`,
+        [category_id]
+      );
+      if (categoryCheck.rows.length === 0) {
+        return res.status(400).json({ error: "Invalid category_id" });
+      }
+    }
+
     const result = await pool.query(
-      `INSERT INTO products (name, slug, quantity, created_by)
-       VALUES ($1, $2, $3, $4)
-       RETURNING id, name, slug, quantity, created_by, created_at`,
-      [name, slug, quantity || 0, userId]
+      `INSERT INTO products (name, slug, quantity, category_id, created_by)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING id, name, slug, quantity, category_id, created_by, created_at`,
+      [name, slug, quantity || 0, category_id || null, userId]
     );
 
     return res.status(201).json({
@@ -140,19 +176,30 @@ export const deleteProduct = async (req: Request, res: Response): Promise<Respon
 };
 // [PATCH] /api/product/edit/:id
 export const edit = async (req: AuthRequest, res: Response): Promise<Response | void> => {
-  const { name, slug, quantity } = req.body;
+  const { name, slug, quantity, category_id } = req.body;
 
   try {
     // Lấy userId từ token
     const decodedUser = req.user as JwtPayload;
     const userId = decodedUser?.id;
 
+    // Nếu có category_id gửi lên, kiểm tra tồn tại trong bảng categories
+    if (category_id) {
+      const categoryCheck = await pool.query(
+        `SELECT id FROM categories WHERE id = $1`,
+        [category_id]
+      );
+      if (categoryCheck.rows.length === 0) {
+        return res.status(400).json({ error: "Invalid category_id" });
+      }
+    }
+
     const result = await pool.query(
       `UPDATE products 
-       SET name=$1, slug=$2, quantity=$3, updated_at=NOW(), updated_by=$4
-       WHERE id=$5 
-       RETURNING id, name, slug, quantity, updated_at, updated_by`,
-      [name, slug, quantity, userId, req.params.id]
+       SET name = $1, slug = $2, quantity = $3, category_id = $4, updated_at = NOW(), updated_by = $5
+       WHERE id = $6
+       RETURNING id, name, slug, quantity, category_id, updated_at, updated_by`,
+      [name, slug, quantity, category_id || null, userId, req.params.id]
     );
 
     if (result.rows.length === 0) {
