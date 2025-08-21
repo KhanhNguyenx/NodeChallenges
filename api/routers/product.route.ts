@@ -3,6 +3,7 @@ import * as controller from "../controllers/product.controller";
 import * as authMiddleware from "../middlewares/auth.middleware";
 import productDto from "../dto/product.dto";
 import validate from "../middlewares/validate.middleware";
+import upload from '../../config/multer';
 import '../../swagger/productEndpoints'; // Import Swagger từ productEndpoints.ts
 
 const router: Router = Router();
@@ -20,5 +21,7 @@ router.post("/create", productDto, validate, authMiddleware.requireAuth, control
 router.patch("/edit/:id", productDto, validate, authMiddleware.requireAuth, controller.edit);
 
 router.delete("/delete/:id", authMiddleware.requireAuth, controller.deleteProduct);
+
+router.post("/importProducts", upload.single('excelFile'), controller.importProducts);
 
 export default router;

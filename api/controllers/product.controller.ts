@@ -1,9 +1,16 @@
 import { Request, Response } from "express";
 import pool from "../../config/database";
 import { JwtPayload } from "jsonwebtoken";
+import ExcelJS from 'exceljs';
+import fs from 'fs/promises';
+import { RowError } from '../types/excelRowError';
+import { uploadProduct} from '../types/uploadProducts';
+import removeAccents from 'remove-accents';
+
 interface AuthRequest extends Request {
   user?: string | JwtPayload;
 }
+
 // [GET] /api/product?page=1&limit=10&search=""&minQuantity=&maxQuantity=
 export const getAllProducts = async (req: Request, res: Response): Promise<Response | void> => {
   try {
@@ -213,5 +220,167 @@ export const edit = async (req: AuthRequest, res: Response): Promise<Response | 
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: "Failed to update product" });
+  }
+};
+// [POST] /api/products/import
+export const importProducts = async (req: Request, res: Response): Promise<Response | void> => {
+  try {
+    // Check for file
+    if (!req.file) {
+      return res.status(400).json({ error: 'Vui lòng tải lên file Excel!' });
+    }
+
+    const filePath: string = req.file.path;
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.readFile(filePath);
+    const worksheet: ExcelJS.Worksheet | undefined = workbook.getWorksheet(1);
+
+    // Check if worksheet exists
+    if (!worksheet) {
+      await fs.unlink(filePath);
+      return res.status(400).json({ error: 'Không tìm thấy worksheet trong file Excel!' });
+    }
+
+    // Array to store formatted data and errors
+    const formattedData: uploadProduct[] = [];
+    const rowErrors: RowError[] = [];
+
+    // Collect all rows first
+    const rows: { row: ExcelJS.Row; rowNumber: number }[] = [];
+    worksheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
+      if (rowNumber === 1) return; // Skip header row
+      rows.push({ row, rowNumber });
+    });
+
+    // Process rows sequentially
+    for (const { row, rowNumber } of rows) {
+      const name = row.getCell(1).value;
+      const slug = row.getCell(2).value;
+      const quantity = row.getCell(3).value;
+      const category = row.getCell(4).value;
+
+      // Validate name (must be a non-empty string)
+      let nameValue: string = '';
+      const nameErrors: string[] = [];
+      if (typeof name === 'string' && name.trim() !== '') {
+        nameValue = name.trim();
+      } else {
+        nameErrors.push('Name must be a non-empty string');
+      }
+      if (nameErrors.length > 0) {
+        rowErrors.push({ rowNumber, errors: nameErrors });
+      }
+
+      // Validate slug (must be a non-empty string)
+      let slugValue: string = '';
+      const slugErrors: string[] = [];
+      if (typeof slug === 'string' && slug.trim() !== '') {
+        slugValue = slug.trim();
+      } else {
+        slugErrors.push('Slug must be a non-empty string');
+      }
+      if (slugErrors.length > 0) {
+        rowErrors.push({ rowNumber, errors: slugErrors });
+      }
+
+      // Validate quantity (must be a non-negative integer)
+      let quantityValue: number = 0;
+      const quantityErrors: string[] = [];
+      if (typeof quantity === 'number' && !isNaN(quantity) && Number.isInteger(quantity) && quantity >= 0) {
+        quantityValue = quantity;
+      } else if (typeof quantity === 'string') {
+        const parsedQuantity = parseInt(quantity, 10);
+        if (!isNaN(parsedQuantity) && Number.isInteger(parsedQuantity) && parsedQuantity >= 0) {
+          quantityValue = parsedQuantity;
+        } else {
+          quantityErrors.push('Quantity must be a valid non-negative integer');
+        }
+      } else {
+        quantityErrors.push('Quantity must be a valid integer');
+      }
+      if (quantityErrors.length > 0) {
+        rowErrors.push({ rowNumber, errors: quantityErrors });
+      }
+
+      // Validate category and find category_id
+      let categoryId: number | null = null;
+      const categoryErrors: string[] = [];
+      if (typeof category === 'string' && category.trim() !== '') {
+        // Process category: remove diacritics, lowercase, replace spaces with hyphens
+        const categorySlug = removeAccents(category.trim())
+          .toLowerCase()
+          .replace(/\s+/g, '-');
+        // Query categories table to find category_id
+        const categoryResult = await pool.query(
+          'SELECT id FROM categories WHERE slug = $1',
+          [categorySlug],
+        );
+        
+        if (categoryResult.rows.length > 0) {
+          categoryId = categoryResult.rows[0].id;
+        } else {
+          categoryErrors.push(`Category "${category}" not found in categories table`);
+        }
+      } else {
+        categoryErrors.push('Category must be a non-empty string');
+      }
+      if (categoryErrors.length > 0) {
+        rowErrors.push({ rowNumber, errors: categoryErrors });
+      }
+
+      // If no errors for this row, add to formattedData
+      if (nameErrors.length === 0 && slugErrors.length === 0 && quantityErrors.length === 0 && categoryErrors.length === 0) {
+        formattedData.push({
+          name: nameValue,
+          slug: slugValue,
+          quantity: quantityValue,
+          category_id: categoryId!,
+        });
+      }
+    }
+
+    // If there are errors, return them and stop processing
+    if (rowErrors.length > 0) {
+      await fs.unlink(filePath);
+      return res.status(400).json({
+        error: 'Invalid data in Excel file',
+        details: rowErrors,
+      });
+    }
+
+    // Save to PostgreSQL
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      for (const data of formattedData) {
+        await client.query(
+          `INSERT INTO products (name, slug, quantity, category_id)
+           VALUES ($1, $2, $3, $4)`,
+          [data.name, data.slug, data.quantity, data.category_id],
+        );
+      }
+
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+
+    // Delete temporary file
+    await fs.unlink(filePath);
+
+    return res.json({
+      message: 'Dữ liệu đã được lưu vào bảng products thành công!',
+      data: formattedData,
+    });
+  } catch (e) {
+    console.error(e);
+    if (req.file) {
+      await fs.unlink(req.file.path).catch(() => {});
+    }
+    return res.status(500).json({ error: 'Failed to import products' });
   }
 };
